@@ -154,6 +154,7 @@ static int check_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr)
 
 int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr)
 {
+        kdebug("handle trans fault for %x start!", fault_addr);
         struct vmregion *vmr;
         struct pmobject *pmo;
         paddr_t pa;
@@ -168,6 +169,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr)
          * from adding the same mapping twice.
          */
         lock(&vmspace->vmspace_lock);
+        kdebug("Lock vmspace_lock");
         vmr = find_vmr_for_va(vmspace, fault_addr);
 
         if (vmr == NULL) {
@@ -210,6 +212,15 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr)
                         /* BLANK BEGIN */
                         /* Hint: Allocate a physical page and clear it to 0. */
 
+                        struct page *new_page = get_pages(0);
+                        memset(new_page, 0, PAGE_SIZE);
+                        if (!new_page) {
+                                ret = -ENOMEM;
+                                unlock(&vmspace->vmspace_lock);
+                                return ret;
+                        }
+                        pa = virt_to_phys(new_page);
+
                         /* BLANK END */
                         /*
                          * Record the physical page in the radix tree:
@@ -217,10 +228,17 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr)
                          */
                         kdebug("commit: index: %ld, 0x%lx\n", index, pa);
                         commit_page_to_pmo(pmo, index, pa);
+                        kdebug("commit: done");
 
                         /* Add mapping in the page table */
                         lock(&vmspace->pgtbl_lock);
                         /* BLANK BEGIN */
+
+                        kdebug("map range start!");
+                        ret = map_range_in_pgtbl(vmspace->pgtbl, fault_addr, pa, PAGE_SIZE, perm);
+                        kdebug("map range done!");
+
+                        kdebug("allocate physical page done!");
 
                         /* BLANK END */
                         unlock(&vmspace->pgtbl_lock);
@@ -250,6 +268,10 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr)
                                 /* Add mapping in the page table */
                                 lock(&vmspace->pgtbl_lock);
                                 /* BLANK BEGIN */
+                                kdebug("pmo type = PMO_SHM or PMO_ANONYM\n");
+                                vmr_prop_t flags = VMR_READ | VMR_WRITE;
+
+                                ret = map_range_in_pgtbl(vmspace->pgtbl, fault_addr, pa, PAGE_SIZE, perm);
 
                                 /* BLANK END */
                                 /* LAB 2 TODO 7 END */
@@ -296,6 +318,7 @@ int handle_trans_fault(struct vmspace *vmspace, vaddr_t fault_addr)
         }
 
         unlock(&vmspace->vmspace_lock);
+        kdebug("handle trans fault done!");
         return ret;
 }
 

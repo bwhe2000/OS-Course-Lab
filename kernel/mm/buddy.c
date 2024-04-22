@@ -14,6 +14,8 @@
 #include <common/macro.h>
 #include <common/kprint.h>
 #include <mm/buddy.h>
+int free_count = 0; /*add by bowen*/
+int merge_count = 0; /*add by bowen*/
 
 static struct page *get_buddy_chunk(struct phys_mem_pool *pool,
                                     struct page *chunk)
@@ -53,7 +55,21 @@ static struct page *split_chunk(struct phys_mem_pool *pool, int order,
          * a suitable free list.
          */
         /* BLANK BEGIN */
-
+        while(chunk->order > order){
+                chunk->order --;
+                struct page *buddy_chunk = get_buddy_chunk(pool, chunk);
+                buddy_chunk->order = chunk->order;
+                for(int i = 0; i < (1 << (buddy_chunk->order)); i++){
+                        (buddy_chunk + i)->order = buddy_chunk->order;
+                }
+                list_add(&buddy_chunk->node, &pool->free_lists[buddy_chunk->order].free_list);
+                pool->free_lists[buddy_chunk->order].nr_free ++;
+                // get_free_mem_size_from_buddy(pool); /* added by bowen*/
+        }
+        for(int i = 0; i < (1 << (chunk->order)); i++){
+                (chunk + i)->order = chunk->order;
+        }
+        return chunk;
         /* BLANK END */
         /* LAB 2 TODO 1 END */
 }
@@ -69,6 +85,28 @@ static struct page *merge_chunk(struct phys_mem_pool *pool, struct page *chunk)
          */
         /* BLANK BEGIN */
 
+        // merge_count += 1;
+        // kdebug("merge times: %d\n", merge_count);
+        /*added by bowen*/
+
+        struct page *buddy_chunk = get_buddy_chunk(pool, chunk);
+        struct page *lower_chunk = NULL;
+        while(buddy_chunk != NULL && !buddy_chunk -> allocated && chunk->order + 1 < BUDDY_MAX_ORDER && buddy_chunk->order == chunk->order && buddy_chunk->pool == chunk->pool){
+                list_del(&buddy_chunk->node);
+                pool->free_lists[buddy_chunk->order].nr_free --;
+                if(chunk < buddy_chunk){
+                        lower_chunk = chunk;
+                }else{
+                        lower_chunk = buddy_chunk;
+                }
+                lower_chunk->order ++;
+                for(int i = 0; i < (1 << (lower_chunk -> order)); i++){
+                        (lower_chunk + i)->order = lower_chunk->order;
+                }
+                chunk = lower_chunk;
+                buddy_chunk = get_buddy_chunk(pool, chunk);
+        }
+        return chunk;
         /* BLANK END */
         /* LAB 2 TODO 1 END */
 }
@@ -117,6 +155,13 @@ void init_buddy(struct phys_mem_pool *pool, struct page *start_page,
         for (page_idx = 0; page_idx < page_num; ++page_idx) {
                 page = start_page + page_idx;
                 buddy_free_pages(pool, page);
+                check_buddy_pool(pool);
+
+                // int current_free_mem = get_free_mem_size_from_buddy(pool);
+                // if(current_free_mem != (page_idx + 1) * BUDDY_PAGE_SIZE){
+                //         kdebug("1");
+                // }
+                /*added by bowen*/
         }
 }
 
@@ -140,6 +185,31 @@ struct page *buddy_get_pages(struct phys_mem_pool *pool, int order)
          * in the free lists, then split it if necessary.
          */
         /* BLANK BEGIN */
+        if(pool->free_lists[order].nr_free > 0){
+                page = (list_entry(pool->free_lists[order].free_list.next, struct page, node));
+                list_del(pool->free_lists[order].free_list.next);
+                pool->free_lists[order].nr_free --;
+        }else{
+                int search_order = order + 1;
+                while(search_order < BUDDY_MAX_ORDER){
+                        if(pool->free_lists[search_order].nr_free > 0){
+                                struct page *splited_chunk = list_entry(pool->free_lists[search_order].free_list.next, struct page, node);
+                                list_del(pool->free_lists[search_order].free_list.next);
+                                pool->free_lists[search_order].nr_free --;
+                                page = split_chunk(pool, order, splited_chunk);
+                                break;
+                        }
+                        search_order ++;
+                }
+        }
+        
+        if(page != NULL){
+                for(int i = 0; i < (1 << order); i++){
+                        (page + i)->allocated = 1;
+                }
+        }
+
+        // get_free_mem_size_from_buddy(pool); /* added by bowen */
 
         /* BLANK END */
         /* LAB 2 TODO 1 END */
@@ -153,6 +223,13 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
         int order;
         struct list_head *free_list;
 
+        // free_count += 1;
+        // kdebug("free times: %d\n", free_count); 
+        // if(free_count == 28880){
+        //         kdebug("free times: %d\n", free_count); 
+        // }
+        /*add by bowen*/
+        
         lock(&pool->buddy_lock);
 
         /* LAB 2 TODO 1 BEGIN */
@@ -161,9 +238,14 @@ void buddy_free_pages(struct phys_mem_pool *pool, struct page *page)
          * a suitable free list.
          */
         /* BLANK BEGIN */
-
+        page->allocated = 0;
+        struct page *merged_chunk = merge_chunk(pool, page);
+        list_add(&merged_chunk->node, &pool->free_lists[merged_chunk->order].free_list);
+        pool->free_lists[merged_chunk->order].nr_free ++;
         /* BLANK END */
         /* LAB 2 TODO 1 END */
+
+        // get_free_mem_size_from_buddy(pool); /* added by bowen */
 
         unlock(&pool->buddy_lock);
 }
@@ -226,6 +308,24 @@ unsigned long get_free_mem_size_from_buddy(struct phys_mem_pool *pool)
                        order,
                        current_order_size,
                        list->nr_free);
+        }
+        return total_size;
+}
+
+void check_buddy_pool(struct phys_mem_pool *pool)
+{
+        int order;
+        struct free_list *list;
+        unsigned long current_order_size;
+        unsigned long total_size = 0;
+
+        for (order = 0; order < BUDDY_MAX_ORDER; order++) {
+                if(pool->free_lists[order].nr_free > 0){
+                        struct page *splited_chunk = list_entry(pool->free_lists[order].free_list.next, struct page, node);
+                        if(splited_chunk->order != order){
+                                kdebug("%d pool order error\n", order);
+                        }
+                }
         }
         return total_size;
 }

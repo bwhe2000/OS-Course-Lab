@@ -450,6 +450,18 @@ out_unlock:
         return ret;
 }
 
+int comp_vmr_key_func(const void *key, const struct rb_node *node){
+        struct vmregion *vmr = (struct vmregion *)rb_entry(node, struct vmregion, tree_node);
+        vaddr_t *vkey = (vaddr_t *)key;
+        if(*vkey >= vmr->start && *vkey < vmr->start +vmr->size){
+                return 0;
+        }else if(*vkey < vmr->start){
+                return -1;
+        }else{
+                return 1;
+        }
+}
+
 /* This function should be surrounded with the vmspace_lock. */
 struct vmregion *find_vmr_for_va(struct vmspace *vmspace, vaddr_t addr)
 {
@@ -457,6 +469,15 @@ struct vmregion *find_vmr_for_va(struct vmspace *vmspace, vaddr_t addr)
         /* Hint: Find the corresponding vmr for @addr in @vmspace */
         /* BLANK BEGIN */
 
+        struct rb_node *rnode = NULL;
+        struct vmregion *vmr = NULL;
+
+        rnode = rb_search(&vmspace->vmr_tree, &addr, comp_vmr_key_func);
+        if(rnode != NULL){
+                vmr = (struct vmregion *)rb_entry(rnode, struct vmregion, tree_node);
+                kdebug("Find vmr for va: %d, %d", vmr->start, addr);
+        }
+        return vmr;
         /* BLANK END */
         /* LAB 2 TODO 6 END */
 }

@@ -20,16 +20,27 @@ void lab2_test_buddy(void)
         {
                 bool ok = true;
                 u64 expect_free_mem = pool->pool_phys_page_num * PAGE_SIZE;
+                u64 current_free_mem = get_free_mem_size_from_buddy(pool); /*added by bowen*/
+                kdebug("Current free memory : %d", current_free_mem);
+
                 struct page *page = buddy_get_pages(pool, 0);
                 BUG_ON(page == NULL);
                 lab_assert(page->order == 0 && page->allocated);
                 expect_free_mem -= PAGE_SIZE;
+
+                current_free_mem = get_free_mem_size_from_buddy(pool); /*added by bowen*/
+                kdebug("Current free memory : %d", current_free_mem);
+
                 lab_assert(get_free_mem_size_from_buddy(pool)
                            == expect_free_mem);
                 buddy_free_pages(pool, page);
                 expect_free_mem += PAGE_SIZE;
                 lab_assert(get_free_mem_size_from_buddy(pool)
                            == expect_free_mem);
+
+                current_free_mem = get_free_mem_size_from_buddy(pool); /*added by bowen*/
+                kdebug("Current free memory : %d", current_free_mem);
+
                 lab_check(ok, "Allocate & free order 0");
         }
         {
